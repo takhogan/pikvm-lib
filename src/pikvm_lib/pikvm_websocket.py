@@ -11,7 +11,7 @@ import re
 import json
 
 from pikvm_lib.pikvm_aux.pikvm_aux import BuildPiKVM
-from pikvm_lib.keymaps import KEYMAP_BASE,KEYMAP_SHIFT
+from pikvm_lib.keymaps import KEYMAP_BASE,KEYMAP_SHIFT, TYPEABLE_CHARACTERS, describe_untypeable
 
 
 class PiKVMWebsocket(BuildPiKVM):
@@ -195,6 +195,7 @@ class PiKVMWebsocket(BuildPiKVM):
                 # Special case for "
                 if key == '"':
                     self._send_shift_key("Quote")
+                    return
 
                 self._send_shift_key(self.map_shift_csv[key])
             except KeyError:
@@ -301,6 +302,14 @@ class PiKVMWebsocket(BuildPiKVM):
         """
         self.logger.debug(f"Sending input {text}")
         matches = self._find_special_keys(text)
+        # Checked before anything is sent: a character with no key used to be
+        # typed as Space (any whitespace, "\r" and "\n" included) or dropped.
+        special_positions = set()
+        for match in matches:
+            special_positions.update(range(match.start(), match.end()))
+        for idx, key in enumerate(text):
+            if idx not in special_positions and key not in TYPEABLE_CHARACTERS:
+                raise ValueError(describe_untypeable(key, idx))
         iteration = enumerate(text)
         for idx, key in iteration:
             if matches and matches[0].start() == idx:
@@ -309,8 +318,14 @@ class PiKVMWebsocket(BuildPiKVM):
                 characters_to_remove = matches[0].end() - matches[0].start() - 1
                 [next(iteration) for _ in range(characters_to_remove)]
                 matches.pop(0)
+            elif key in ("\r", "\n"):
+                # "\r\n" is one line break, as are a lone "\r" and "\n".
+                self.send_key("Enter")
+                if key == "\r" and text[idx + 1:idx + 2] == "\n":
+                    next(iteration)
+            elif key == "\t":
+                self.send_key("Tab")
+            elif key.isalpha() or key == " " or key.isdigit():
+                self._send_standard_keys(key)
             else:
-                if key.isalpha() or key.isspace() or key.isdigit():
-                    self._send_standard_keys(key)
-                else:
-                    self._send_extra_key(key)
+                self._send_extra_key(key)

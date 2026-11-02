@@ -1,4 +1,5 @@
-from typing import Final, Mapping
+import string
+from typing import Final, Mapping, List, Optional, Tuple
 
 KEYMAP_PYAUTOGUI: Final[Mapping[str, str]] = {
     "\t": "Tab",
@@ -167,7 +168,7 @@ KEYMAP_BASE: Final[Mapping[str, str]] = {
     "\n":"Enter",
     "\b":"Backspace",
     "\t":"Tab",
-    "\s":"Space",
+    "\\s":"Space",
     "-":"Minus",
     "=":"Equal",
     "[":"BracketLeft",
@@ -216,3 +217,76 @@ KEYMAP_BASE: Final[Mapping[str, str]] = {
     "<Pause>":"Pause",
     "<Power>":"Power"
 }
+
+
+def _build_text_keymap():
+    """Every character that typing text can reproduce exactly, as
+    (key code, whether Shift is held), on the US layout the key codes above
+    assume. Anything else (a non-ASCII letter, a control character other than
+    tab and the line breaks) has no key, so text holding it is refused rather
+    than typed as something else."""
+    keys = {}
+    for char in string.ascii_lowercase:
+        keys[char] = (f"Key{char.upper()}", False)
+    for char in string.ascii_uppercase:
+        keys[char] = (f"Key{char}", True)
+    for char in string.digits:
+        keys[char] = (f"Digit{char}", False)
+    keys[" "] = ("Space", False)
+    keys["\t"] = ("Tab", False)
+    # A line break is one Enter whichever way it is written: "\r\n" is
+    # collapsed to a single "\n" by text_to_keys, and a lone "\r" is Enter too.
+    keys["\n"] = ("Enter", False)
+    keys["\r"] = ("Enter", False)
+    for char, code in KEYMAP_PYAUTOGUI.items():
+        if len(char) == 1 and char.isprintable():
+            keys[char] = (code, False)
+    for char, code in KEYMAP_SHIFT.items():
+        keys[char] = (code, True)
+    return keys
+
+
+# char -> (key code, shift)
+TEXT_KEYMAP: Final[Mapping[str, Tuple[str, bool]]] = _build_text_keymap()
+
+# The characters text may hold: printable ASCII, tab, "\n" and "\r".
+TYPEABLE_CHARACTERS: Final[frozenset] = frozenset(TEXT_KEYMAP)
+
+
+def describe_untypeable(char: str, position: Optional[int] = None) -> str:
+    """The error for a character there is no key for."""
+    where = f" at position {position}" if position is not None else ""
+    return (f"cannot type {char!r} (U+{ord(char):04X}){where}: the PiKVM keyboard "
+            f"has no key for it, so nothing was typed")
+
+
+def find_untypeable(text: str) -> Optional[Tuple[int, str]]:
+    """The position and character of the first character of text there is no
+    key for, or None when all of it can be typed."""
+    for position, char in enumerate(text):
+        if char not in TYPEABLE_CHARACTERS:
+            return position, char
+    return None
+
+
+def text_to_keys(text: str) -> List[str]:
+    """The characters to press, one per key, to type text exactly: "\r\n" and
+    a lone "\r" become one "\n" (Enter), since a CRLF is one line break in a
+    Windows editor and typing both would make two. Raises ValueError naming
+    the first character there is no key for, before anything is typed."""
+    untypeable = find_untypeable(text)
+    if untypeable is not None:
+        position, char = untypeable
+        raise ValueError(describe_untypeable(char, position))
+    keys = []
+    position = 0
+    while position < len(text):
+        char = text[position]
+        if char == "\r":
+            keys.append("\n")
+            if position + 1 < len(text) and text[position + 1] == "\n":
+                position += 1
+        else:
+            keys.append(char)
+        position += 1
+    return keys
