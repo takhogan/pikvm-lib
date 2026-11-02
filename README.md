@@ -114,6 +114,18 @@ pikvm_instance.get_streamer_image()
 pikvm_instance.press('a')
 ```
 
+* **Type Text:**
+
+```python
+pikvm_instance.write('Hello, World!\r\n')
+```
+
+Text is typed exactly or not at all. It may hold printable ASCII, tab, and line
+breaks: `\r\n`, `\n` and a lone `\r` are each one Enter. A character with no key
+on the (US layout) keyboard, such as `é`, raises `ValueError` naming it and its
+position before any key is sent. `press`, `keyDown` and `keyUp` refuse such a
+character too; `pikvm_lib.keymaps.TYPEABLE_CHARACTERS` is the set.
+
 * **Send Hot Key:**
 
 ```python
